@@ -1,0 +1,11 @@
+image:
+  repository: registry.access.redhat.com/ubi8/ubi
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+volumes:
+  - ocp4-cis
+
+nameOverride: ""
+fullnameOverride: ""

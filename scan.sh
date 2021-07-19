@@ -3,6 +3,7 @@
 cd "$(dirname "$(realpath "$0")")"
 set -e
 
+helm version --short 2>/dev/null | grep -q '^v3' || { echo "Please install helm 3 into your \$PATH."; exit 1; }
 oc whoami
 oc whoami --show-server
 
@@ -37,3 +38,42 @@ while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"
     echo -n '.'
     sleep 1
 done; echo
+
+echo -n "Recovering scan results"
+resultsdir=output/$(uuidgen)
+pvcs=(
+    ocp4-cis
+    ocp4-cis-node-master
+    ocp4-cis-node-worker
+    ocp4-moderate
+    rhcos4-moderate-master
+    rhcos4-moderate-worker
+)
+for pvc in ${pvcs[@]}; do
+    mkdir -p $resultsdir/$pvc
+    helm install --set volumes="{$pvc}" results-$pvc ./compliance-operator/results &>/dev/null
+    echo -n '.'
+done
+for pvc in ${pvcs[@]}; do
+    while [ $(oc get pod results-$pvc -ojsonpath='{.status.phase}') != 'Running' ]; do
+        echo -n '.'
+        sleep 1
+    done
+    oc cp results-$pvc:/results/0/ $resultsdir/$pvc &>/dev/null ||:
+    echo -n '.'
+done
+for pvc in ${pvcs[@]}; do
+    helm uninstall results-$pvc &>/dev/null
+    echo -n '.'
+done; echo
+
+echo -n "Extracting scan results"
+cd $resultsdir
+for bzip in $(find . -type f -name '*.bzip2'); do
+    bunzip2 $bzip &>/dev/null
+    mv $bzip.out $(echo $bzip | rev | cut -d. -f2- | rev)
+    echo -n '.'
+done; echo
+
+echo "Your scan results are in:"
+pwd

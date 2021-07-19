@@ -1,0 +1,9 @@
+apiVersion: v2
+name: results
+description: A Helm chart to help mount and extract raw Compliance Operator results
+
+type: application
+
+version: 0.1.0
+
+appVersion: "8.4"
