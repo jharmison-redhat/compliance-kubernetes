@@ -33,7 +33,7 @@ for scan in ocp4-cis ocp4-cis-node ocp4-moderate rhcos4-moderate; do
         sleep 1
     done
 done
-while [ $(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u) != "DONE" ]; do
+while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u)" != "DONE" ]; do
     echo -n '.'
     sleep 1
 done; echo
