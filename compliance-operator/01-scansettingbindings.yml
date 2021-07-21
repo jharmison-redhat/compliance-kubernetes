@@ -2,6 +2,7 @@
 apiVersion: compliance.openshift.io/v1alpha1
 kind: ScanSettingBinding
 metadata:
+  annotations: {}
   name: ocp4-cis-node
   namespace: openshift-compliance
 profiles:
@@ -16,6 +17,7 @@ settingsRef:
 apiVersion: compliance.openshift.io/v1alpha1
 kind: ScanSettingBinding
 metadata:
+  annotations: {}
   name: ocp4-nist-moderate-and-cis
   namespace: openshift-compliance
 profiles:
@@ -33,6 +35,7 @@ settingsRef:
 apiVersion: compliance.openshift.io/v1alpha1
 kind: ScanSettingBinding
 metadata:
+  annotations: {}
   name: rhcos4-nist-moderate
   namespace: openshift-compliance
 profiles:
