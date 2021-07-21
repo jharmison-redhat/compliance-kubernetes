@@ -9,11 +9,68 @@ function ScanSettingBinding_differences {
         | grep -v '^---'
 }
 
+function ComplianceCheckResults {
+    status=${1:-FAIL}
+    shift
+    severity=${1:-high}
+    shift
+    oc get compliancecheckresults -l \
+        compliance.openshift.io/check-status=$status,compliance.openshift.io/check-severity=$severity \
+        "${@}"
+}
+
 function ComplianceCheckResults_rules {
-    oc get --no-headers compliancecheckresults -l \
-        compliance.openshift.io/check-status=${1:-FAIL},compliance.openshift.io/check-severity=${2:-high} \
-        -ojsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
+    ComplianceCheckResults ${1:-FAIL} ${2:-high} --no-headers -o \
+        jsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
         | sort -u
+}
+
+function wait_on {
+    echo -n "Waiting on $1."
+    shift
+    timeout=$1
+    shift
+    retries=$(( timeout / 5 ))
+    if [ $retries -eq 0 ]; then
+        eval ${@} &>/dev/null
+        return $?
+    else
+        while ! "${@}" &>/dev/null; do
+            (( retries -- ))
+            [ $retries -gt 0 ] || break
+            sleep 5
+            echo -n .
+        done
+        echo
+        [ $retries -gt 0 ] || return 1
+    fi
+}
+
+function operator_query {
+    echo '[.items[].status.conditions[] | select(.type == "'"$1"'") | .status] | contains(["'"$2"'"])'
+}
+
+function cluster_done_upgrading {
+    oc get nodes &>/dev/null || return 1
+    oc get clusteroperators -o json | jq -e "$(operator_query Progressing True)" &>/dev/null && return 1
+    oc get clusteroperators -o json | jq -e "$(operator_query Degraded True)" &>/dev/null && return 1
+    oc get clusteroperators -o json | jq -e "$(operator_query Available False)" &>/dev/null && return 1
+    return 0
+}
+
+function wait_on_cluster_upgrade {
+    delay=${1:-300}
+    retries=12
+    echo -n 'Waiting for cluster operators to begin redploying.'
+    while cluster_done_upgrading; do
+        (( retries-- ))
+        [ $retries -le 0 ] && break
+        sleep 5
+        echo -n .
+    done
+    echo
+    [ $retries -gt 0 ] || { echo "Cluster operators don't appear to be redeploying." ; return 0 ; }
+    wait_on "cluster operators to finish rollout" $delay cluster_done_upgrading || return 1
 }
 
 # We're using helm for ease of templating
@@ -59,7 +116,10 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
         sleep 1
     done; echo
 
-    echo -n "Recovering scan results"
+    # Because we're auto-applying, wait for everything to finish rolling
+    wait_on_cluster_upgrade 3600; echo
+
+    echo -n "Recovering original scan results"
     # Random folder each run
     resultsdir=output/$(uuidgen)/before
     # These are hard-coded to be the ones we expect from these profiles
@@ -113,5 +173,6 @@ fi
 echo
 echo "You passed $(echo "$(ComplianceCheckResults_rules PASS; ComplianceCheckResults_rules PASS medium; ComplianceCheckResults_rules PASS unknown; ComplianceCheckResults_rules PASS low)" | sort -u | wc -l) rules."
 echo "You had $(ComplianceCheckResults_rules | wc -l) high-severity failures, $(ComplianceCheckResults_rules FAIL medium | wc -l) medium-severity failures, and $(ComplianceCheckResults_rules MANUAL | wc -l) remaining manual checks."
-echo "Your remaining high-severity failures:"
-ComplianceCheckResults_rules
+
+# Manually rerun scans
+# Check updated results
