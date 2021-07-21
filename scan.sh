@@ -9,6 +9,13 @@ function ScanSettingBinding_differences {
         | grep -v '^---'
 }
 
+function ComplianceCheckResults_rules {
+    oc get --no-headers compliancecheckresults -l \
+        compliance.openshift.io/check-status=${1:-FAIL},compliance.openshift.io/check-severity=${2:-high} \
+        -ojsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
+        | sort -u
+}
+
 # We're using helm for ease of templating
 helm version --short 2>/dev/null | grep -q '^v3' || { echo "Please install helm 3 into your \$PATH."; exit 1; }
 # Make sure we're logged into the right cluster
@@ -54,7 +61,7 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
 
     echo -n "Recovering scan results"
     # Random folder each run
-    resultsdir=output/$(uuidgen)
+    resultsdir=output/$(uuidgen)/before
     # These are hard-coded to be the ones we expect from these profiles
     # TODO: Dynamically figure out which PVCs exist thanks to our specific scans
     pvcs=(
@@ -102,3 +109,9 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
 else
     echo "Not applying scans as they appear to already be updated"
 fi
+
+echo
+echo "You passed $(echo "$(ComplianceCheckResults_rules PASS; ComplianceCheckResults_rules PASS medium; ComplianceCheckResults_rules PASS unknown; ComplianceCheckResults_rules PASS low)" | sort -u | wc -l) rules."
+echo "You had $(ComplianceCheckResults_rules | wc -l) high-severity failures, $(ComplianceCheckResults_rules FAIL medium | wc -l) medium-severity failures, and $(ComplianceCheckResults_rules MANUAL | wc -l) remaining manual checks."
+echo "Your remaining high-severity failures:"
+ComplianceCheckResults_rules
