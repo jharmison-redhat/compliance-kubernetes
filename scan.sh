@@ -51,11 +51,12 @@ function operator_query {
 }
 
 function cluster_done_upgrading {
-    oc get nodes &>/dev/null || return 1
-    oc get clusteroperators -o json | jq -e "$(operator_query Progressing True)" &>/dev/null && return 1
-    oc get clusteroperators -o json | jq -e "$(operator_query Degraded True)" &>/dev/null && return 1
-    oc get clusteroperators -o json | jq -e "$(operator_query Available False)" &>/dev/null && return 1
-    return 0
+    ret=0
+    oc get nodes &>/dev/null || (( ret += 1 ))
+    oc get clusteroperators -o json | jq -e "$(operator_query Progressing True)" &>/dev/null && (( ret += 2 ))
+    oc get clusteroperators -o json | jq -e "$(operator_query Degraded True)" &>/dev/null && (( ret += 4 ))
+    oc get clusteroperators -o json | jq -e "$(operator_query Available False)" &>/dev/null && (( ret += 8 ))
+    return $ret
 }
 
 function wait_on_cluster_upgrade {
@@ -71,6 +72,22 @@ function wait_on_cluster_upgrade {
     echo
     [ $retries -gt 0 ] || { echo "Cluster operators don't appear to be redeploying." ; return 0 ; }
     wait_on "cluster operators to finish rollout" $delay cluster_done_upgrading || return 1
+}
+
+function wait_on_cluster_stable {
+    stability_desired=${1:-300}
+    echo -n 'Waiting for desired cluster stability.'
+    local this_run=0
+    while [ $stability_desired -gt $this_run ]; do
+        if cluster_done_upgrading; then
+            (( this_run += 5 ))
+            sleep 5
+            echo -n .
+        else
+            this_run=0
+        fi
+    done
+    echo
 }
 
 # We're using helm for ease of templating
@@ -100,7 +117,12 @@ for profile in ocp4-cis ocp4-cis-node ocp4-moderate rhcos4-moderate; do
     done
 done; echo
 
+resultsdir=output/before
+
 if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
+    # Clean out old "before" results
+    rm -rf $resultsdir
+
     echo -n "Applying default scans"
     oc apply -f compliance-operator/01-scansettingbindings.yml &>/dev/null
     # Wait for the operator to initiate ComplianceScans from our bindings
@@ -114,14 +136,16 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
     while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u)" != "DONE" ]; do
         echo -n '.'
         sleep 1
-    done; echo
+    done; echo; echo
 
     # Because we're auto-applying, wait for everything to finish rolling
-    wait_on_cluster_upgrade 3600; echo
+    wait_on_cluster_stable; echo
+else
+    echo "Not applying scans as they appear to already be updated"
+fi
 
+if [ ! -d $resultsdir ]; then
     echo -n "Recovering original scan results"
-    # Random folder each run
-    resultsdir=output/$(uuidgen)/before
     # These are hard-coded to be the ones we expect from these profiles
     # TODO: Dynamically figure out which PVCs exist thanks to our specific scans
     pvcs=(
@@ -135,6 +159,8 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
     # Create pods to hold open the PVCs using our Helm template
     for pvc in ${pvcs[@]}; do
         mkdir -p $resultsdir/$pvc
+        # Clean out any hanging results pods
+        helm uninstall results-$pvc &>/dev/null ||:
         helm install --set volumes="{$pvc}" results-$pvc ./compliance-operator/results &>/dev/null
         echo -n '.'
     done
@@ -163,11 +189,9 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
         echo -n '.'
     done; echo
 
-    echo "Your scan results are in:"
+    echo "Your pre-remediation scan results are in:"
     pwd
     cd ../..
-else
-    echo "Not applying scans as they appear to already be updated"
 fi
 
 echo
