@@ -14,13 +14,37 @@ function ComplianceCheckResults {
     shift
     severity=${1:-high}
     shift
+    if [ -n "$manual_scans" ]; then
+        oc get compliancecheckresults -l \
+            "compliance.openshift.io/check-status=$status,compliance.openshift.io/check-severity=$severity,compliance.openshift.io/scan-name notin ($manual_scans)" \
+            "${@}"
+    else
+        oc get compliancecheckresults -l \
+            compliance.openshift.io/check-status=$status,compliance.openshift.io/check-severity=$severity \
+            "${@}"
+    fi
+}
+
+# TODO: Better abstraction to reduce duplication
+function ManualComplianceCheckResults {
+    status=${1:-FAIL}
+    shift
+    severity=${1:-high}
+    shift
     oc get compliancecheckresults -l \
-        compliance.openshift.io/check-status=$status,compliance.openshift.io/check-severity=$severity \
+        "compliance.openshift.io/check-status=$status,compliance.openshift.io/check-severity=$severity,compliance.openshift.io/scan-name in ($manual_scans)" \
         "${@}"
 }
 
 function ComplianceCheckResults_rules {
     ComplianceCheckResults ${1:-FAIL} ${2:-high} --no-headers -o \
+        jsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
+        | sort -u
+}
+
+# TODO: Better abstraction to reduce duplication
+function ManualComplianceCheckResults_rules {
+    ManualComplianceCheckResults ${1:-FAIL} ${2:-high} --no-headers -o \
         jsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
         | sort -u
 }
@@ -133,6 +157,7 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
         done
     done
     # Wait for those ComplianceScans to finish
+    # TODO: Refactor into a wait_on function
     while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u)" != "DONE" ]; do
         echo -n '.'
         sleep 1
@@ -145,6 +170,7 @@ else
 fi
 
 if [ ! -d $resultsdir ]; then
+    # TODO: Refactor into a reusable function based on scan name
     echo -n "Recovering original scan results"
     # These are hard-coded to be the ones we expect from these profiles
     # TODO: Dynamically figure out which PVCs exist thanks to our specific scans
@@ -194,9 +220,105 @@ if [ ! -d $resultsdir ]; then
     cd ../..
 fi
 
-echo
-echo "You passed $(echo "$(ComplianceCheckResults_rules PASS; ComplianceCheckResults_rules PASS medium; ComplianceCheckResults_rules PASS unknown; ComplianceCheckResults_rules PASS low)" | sort -u | wc -l) rules."
-echo "You had $(ComplianceCheckResults_rules | wc -l) high-severity failures, $(ComplianceCheckResults_rules FAIL medium | wc -l) medium-severity failures, and $(ComplianceCheckResults_rules MANUAL | wc -l) remaining manual checks."
+# TODO: Refactor into a more useful function for collating results
+declare -A original_passed
+original_passed[high]=$(ComplianceCheckResults_rules PASS | sort -u | wc -l)
+original_passed[medium]=$(ComplianceCheckResults_rules PASS medium | sort -u | wc -l)
+original_passed[low]=$(ComplianceCheckResults_rules PASS low | sort -u | wc -l)
+original_passed[unknown]=$(ComplianceCheckResults_rules PASS unknown | sort -u | wc -l)
+total_passed=0
+for sev in high medium low unknown; do
+    (( total_passed += ${original_passed[$sev]} )) ||:
+done
+declare -A original_failed
+original_failed[high]=$(ComplianceCheckResults_rules | sort -u | wc -l)
+original_failed[medium]=$(ComplianceCheckResults_rules FAIL medium | sort -u | wc -l)
+original_failed[low]=$(ComplianceCheckResults_rules FAIL low | sort -u | wc -l)
+original_failed[unknown]=$(ComplianceCheckResults_rules FAIL unknown | sort -u | wc -l)
+total_failed=0
+for sev in high medium low unknown; do
+    (( total_failed += ${original_failed[$sev]} )) ||:
+done
+declare -A original_manual
+original_manual[high]=$(ComplianceCheckResults_rules MANUAL | sort -u | wc -l)
+original_manual[medium]=$(ComplianceCheckResults_rules MANUAL medium | sort -u | wc -l)
+original_manual[low]=$(ComplianceCheckResults_rules MANUAL low | sort -u | wc -l)
+original_manual[unknown]=$(ComplianceCheckResults_rules MANUAL unknown | sort -u | wc -l)
+total_manual=0
+for sev in high medium low unknown; do
+    (( total_manual += ${original_manual[$sev]} )) ||:
+done
 
-# Manually rerun scans
-# Check updated results
+echo
+echo "You passed $total_passed rules on your original or scheduled scan."
+echo "You had ${original_failed[high]} high-severity failures, $total_failed failures in total, and $total_manual manual checks on your original or scheduled scan."
+echo
+
+echo -n 'Running manually-triggered scans to validate'
+# We need to clean up the old compliancescans to make the manual ones applyable
+purge_fields=''
+for metadata_item in selfLink resourceVersion uid creationTimestamp generation managedFields ownerReferences finalizers; do
+    purge_fields+=".metadata.$metadata_item,"
+done
+purge_fields+='.status'
+# We need to save off the names of our manual scans
+manual_scans=''
+
+# All non-manual scans should be replicated
+for scan in $(oc get compliancescan -l '!compliance.openshift.io/manual-run' -ojsonpath='{.items[*].metadata.name}'); do
+    # Label the new scans as manual so we can identify them
+    manual_label='.metadata.labels={"compliance.openshift.io/manual-run":"true"}'
+    # Rename them so as not to step on old scans
+    rename='.metadata.name=(.metadata.name + "-manual")'
+    # Define the new manual scan with our changes
+    new_scan="$(oc get compliancescan $scan -ojson | \
+        jq "del($purge_fields) | $manual_label | $rename")"
+    manual_scans+="$(echo "$new_scan" | jq -r .metadata.name), "
+    # Delete any previous manual scan attempts so we can rerun
+    echo "$new_scan" | oc delete --wait -f - &>/dev/null
+    # Recreate the manual scans
+    echo "$new_scan" | oc create -f - &>/dev/null
+    echo -n '.'
+done
+# We need to strip our manual scan set
+manual_scans="${manual_scans::-2}"
+
+# Wait for the manual scans to complete
+# TODO: reuse wait_for function from above
+while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u)" != "DONE" ]; do
+    echo -n '.'
+    sleep 1
+done; echo
+
+# TODO: reuse result collation function from above
+declare -A new_passed
+new_passed[high]=$(ManualComplianceCheckResults_rules PASS | sort -u | wc -l)
+new_passed[medium]=$(ManualComplianceCheckResults_rules PASS medium | sort -u | wc -l)
+new_passed[low]=$(ManualComplianceCheckResults_rules PASS low | sort -u | wc -l)
+new_passed[unknown]=$(ManualComplianceCheckResults_rules PASS unknown | sort -u | wc -l)
+new_total_passed=0
+for sev in high medium low unknown; do
+    (( new_total_passed += ${new_passed[$sev]} )) ||:
+done
+declare -A new_failed
+new_failed[high]=$(ManualComplianceCheckResults_rules | sort -u | wc -l)
+new_failed[medium]=$(ManualComplianceCheckResults_rules FAIL medium | sort -u | wc -l)
+new_failed[low]=$(ManualComplianceCheckResults_rules FAIL low | sort -u | wc -l)
+new_failed[unknown]=$(ManualComplianceCheckResults_rules FAIL unknown | sort -u | wc -l)
+new_total_failed=0
+for sev in high medium low unknown; do
+    (( new_total_failed += ${new_failed[$sev]} )) ||:
+done
+declare -A new_manual
+new_manual[high]=$(ManualComplianceCheckResults_rules MANUAL | sort -u | wc -l)
+new_manual[medium]=$(ManualComplianceCheckResults_rules MANUAL medium | sort -u | wc -l)
+new_manual[low]=$(ManualComplianceCheckResults_rules MANUAL low | sort -u | wc -l)
+new_manual[unknown]=$(ManualComplianceCheckResults_rules MANUAL unknown | sort -u | wc -l)
+new_total_manual=0
+for sev in high medium low unknown; do
+    (( new_total_manual += ${new_manual[$sev]} )) ||:
+done
+
+echo
+echo "You passed $new_total_passed rules on your present reevaluation."
+echo "You had ${new_failed[high]} high-severity failures, $new_total_failed failures in total, and $new_total_manual manual checks upon reevaluation."
