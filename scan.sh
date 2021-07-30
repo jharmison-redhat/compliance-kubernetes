@@ -275,7 +275,7 @@ for scan in $(oc get compliancescan -l '!compliance.openshift.io/manual-run' -oj
         jq "del($purge_fields) | $manual_label | $rename")"
     manual_scans+="$(echo "$new_scan" | jq -r .metadata.name), "
     # Delete any previous manual scan attempts so we can rerun
-    echo "$new_scan" | oc delete --wait -f - &>/dev/null
+    echo "$new_scan" | oc delete --wait -f - &>/dev/null ||:
     # Recreate the manual scans
     echo "$new_scan" | oc create -f - &>/dev/null
     echo -n '.'
