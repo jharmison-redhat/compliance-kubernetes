@@ -77,9 +77,9 @@ function operator_query {
 function cluster_done_upgrading {
     ret=0
     oc get nodes &>/dev/null || (( ret += 1 ))
-    oc get clusteroperators -o json | jq -e "$(operator_query Progressing True)" &>/dev/null && (( ret += 2 ))
-    oc get clusteroperators -o json | jq -e "$(operator_query Degraded True)" &>/dev/null && (( ret += 4 ))
-    oc get clusteroperators -o json | jq -e "$(operator_query Available False)" &>/dev/null && (( ret += 8 ))
+    oc get clusteroperators -o json 2>/dev/null | jq -e "$(operator_query Progressing True)" &>/dev/null && (( ret += 2 ))
+    oc get clusteroperators -o json 2>/dev/null | jq -e "$(operator_query Degraded True)" &>/dev/null && (( ret += 4 ))
+    oc get clusteroperators -o json 2>/dev/null | jq -e "$(operator_query Available False)" &>/dev/null && (( ret += 8 ))
     return $ret
 }
 
