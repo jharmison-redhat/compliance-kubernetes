@@ -1,2 +1,16 @@
+# Development artifacts
+__pycache__
+*.egg-info
+*.swp
 tags
-output
+tags.lock
+data
+venv
+.tox
+.eggs
+.coverage
+coverage.xml
+
+# Packaging artifacts
+build
+dist
