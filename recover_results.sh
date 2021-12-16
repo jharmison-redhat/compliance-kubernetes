@@ -6,16 +6,7 @@ cd "$(dirname "$(realpath "$0")")"
 resultsdir=${resultsdir}/${1:-before}
 
 echo -n "Recovering scan results"
-# These are hard-coded to be the ones we expect from these profiles
-# TODO: Dynamically figure out which PVCs exist thanks to our specific scans
-pvcs=(
-    ocp4-cis
-    ocp4-cis-node-master
-    ocp4-cis-node-worker
-    ocp4-moderate
-    rhcos4-moderate-master
-    rhcos4-moderate-worker
-)
+pvcs=$(oc get pvc -n openshift-compliance -l compliance.openshift.io/scan-name -oname | cut -d/ -f2)
 # Create pods to hold open the PVCs using our Helm template
 for pvc in ${pvcs[@]}; do
     # Clean out any hanging results pods
