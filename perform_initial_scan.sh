@@ -26,9 +26,9 @@ if [ -n "$(ScanSettingBinding_differences)" ]; then # we need to apply the scans
         echo -n '.'
         sleep 1
     done; echo; echo
-
-    # Because we're auto-applying, wait for everything to finish rolling
-    wait_on_cluster_stable; echo
 else
     echo "Not applying scans as they appear to already be updated"
 fi
+
+# Because we're auto-applying, wait for everything to finish rolling
+wait_on_cluster_stable

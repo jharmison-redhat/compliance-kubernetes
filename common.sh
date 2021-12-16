@@ -45,6 +45,7 @@ function wait_on_cluster_stable {
             echo -n .
         else
             this_run=0
+            echo -n .
         fi
     done
     echo
