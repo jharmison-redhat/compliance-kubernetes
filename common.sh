@@ -60,4 +60,4 @@ which oc &>/dev/null || { echo "Please install the OpenShift CLI (oc)."; exit 1;
 # Make sure we're logged into the right cluster
 oc whoami
 oc whoami --show-server
-read -sp "Continue with compliance operator against this cluster? (Press Enter, or Ctrl +C to cancel)" dummy; echo
+read -sp "Continue with $(basename "$0") against this cluster? (Press Enter, or Ctrl +C to cancel)" dummy; echo
