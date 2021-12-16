@@ -54,6 +54,9 @@ function wait_on_cluster_stable {
 resultsdir=output
 
 helm version --short 2>/dev/null | grep -q '^v3' || { echo "Please install helm 3 into your \$PATH."; exit 1; }
+which jq &>/dev/null || { echo "Please install jq."; exit 1; }
+which bunzip2 &>/dev/null || { echo "Please install bunzip2."; exit 1; }
+which oc &>/dev/null || { echo "Please install the OpenShift CLI (oc)."; exit 1; }
 # Make sure we're logged into the right cluster
 oc whoami
 oc whoami --show-server
