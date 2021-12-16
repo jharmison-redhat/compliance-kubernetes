@@ -19,7 +19,7 @@ spec:
   targetNamespaces:
   - openshift-compliance
 
-# The subscription to install the latest version for OCP 4.7
+# The subscription to install the latest version
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

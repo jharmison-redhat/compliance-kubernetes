@@ -11,7 +11,6 @@ for scan in $(oc get compliancescan -oname); do
 done
 
 # Wait for the manual scans to complete
-# TODO: reuse wait_for function from above
 while [ "$(oc get compliancescan -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | sort -u)" != "DONE" ]; do
     echo -n '.'
     sleep 1
