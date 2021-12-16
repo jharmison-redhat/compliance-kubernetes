@@ -27,16 +27,16 @@ Shell Script Edition
     ./perform_initial_scan.sh
     ```
 
-- Measure the results of the scan
-
-    ```sh
-    ./measure_compliance_check_results.sh
-    ```
-
 - Recover the SCAP results from the scans
 
     ```sh
     ./recover_results.sh
+    ```
+
+- Measure the results of the scan
+
+    ```sh
+    ./measure_compliance_check_results.sh
     ```
 
 - Trigger a manual rescan, after remediation
