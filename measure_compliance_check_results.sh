@@ -17,9 +17,10 @@ function ComplianceCheckResults_rules {
     ComplianceCheckResults ${1:-FAIL} ${2:-high} --no-headers -o \
         jsonpath='{range .items[*]}{.metadata.annotations.compliance\.openshift\.io/rule}{"\n"}{end}' \
         | sort -u
+    echo -n '.' >&2
 }
 
-echo "Measuring compliance scan pass rates..."
+echo -n "Measuring compliance scan pass rates."
 
 declare -A passed
 passed[high]=$(ComplianceCheckResults_rules PASS | sort -u | wc -l)
