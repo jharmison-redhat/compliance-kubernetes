@@ -35,7 +35,7 @@ function cluster_done_upgrading {
 }
 
 function wait_on_cluster_stable {
-    stability_desired=${1:-300}
+    stability_desired=${1:-60}
     echo -n 'Waiting for desired cluster stability.'
     local this_run=0
     while [ $stability_desired -gt $this_run ]; do
