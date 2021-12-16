@@ -7,7 +7,7 @@ cd "$(dirname "$(realpath "$0")")"
 echo "Applying a manual rescan"
 
 for scan in $(oc get compliancescan -oname); do
-    oc annotate $scan compliance.openshift.io/rescan=$(date +%s)
+    oc annotate $scan compliance.openshift.io/rescan=$(date +%s) &>/dev/null
     echo -n '.'
 done
 
